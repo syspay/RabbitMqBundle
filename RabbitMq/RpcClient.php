@@ -44,6 +44,13 @@ class RpcClient extends BaseAmqp
         return $this->replies;
     }
 
+    public function discardReply($id){
+        if(array_key_exists($id, $this->replies)){
+            unset($this->replies[$id]);
+            $this->requests--;
+        }
+    }
+
     public function processMessage(AMQPMessage $msg)
     {
         $this->replies[$msg->get('correlation_id')] = unserialize($msg->body);
