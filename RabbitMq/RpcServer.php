@@ -15,12 +15,13 @@ class RpcServer extends BaseConsumer
     public function processMessage(AMQPMessage $msg)
     {
         try {
-            $msg->delivery_info['channel']->basic_ack($msg->delivery_info['delivery_tag']);
             $result = call_user_func($this->callback, $msg);
+            $msg->delivery_info['channel']->basic_ack($msg->delivery_info['delivery_tag']);
             $this->sendReply(serialize($result), $msg->get('reply_to'), $msg->get('correlation_id'));
             $this->consumed++;
             $this->maybeStopConsumer();
         } catch (\Exception $e) {
+            $msg->delivery_info['channel']->basic_ack($msg->delivery_info['delivery_tag']);
             $this->sendReply('error: ' . $e->getMessage(), $msg->get('reply_to'), $msg->get('correlation_id'));
         }
     }
