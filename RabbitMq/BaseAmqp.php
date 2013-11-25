@@ -13,6 +13,7 @@ abstract class BaseAmqp
     protected $exchangeDeclared = false;
     protected $queueDeclared = false;
     protected $routingKey = '';
+    protected $autoSetupFabric = true;
 
     protected $exchangeOptions = array(
         'passive' => false,
@@ -159,7 +160,7 @@ abstract class BaseAmqp
         }
     }
 
-    protected function setupFabric()
+    public function setupFabric()
     {
         if (!$this->exchangeDeclared) {
             $this->exchangeDeclare();
@@ -168,5 +169,12 @@ abstract class BaseAmqp
         if (!$this->queueDeclared) {
             $this->queueDeclare();
         }
+    }
+
+    /**
+     * disables the automatic SetupFabric when using a consumer or producer
+     */
+    public function disableAutoSetupFabric() {
+        $this->autoSetupFabric = false;
     }
 }
