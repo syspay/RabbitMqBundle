@@ -198,12 +198,27 @@ public function indexAction($name)
 
 As you can see, if in your configuration you have a producer called __upload\_picture__, then in the service container you will have a service called __old_sound_rabbit_mq.upload\_picture\_producer__.
 
+Besides the message itself, the `OldSound\RabbitMqBundle\RabbitMq\Producer#publish()` method also accepts an optional routing key parameter and an optional array of additional properties. The array of additional properties allows you to alter the properties with which an `PhpAmqpLib\Message\AMQPMessage` object gets constructed by default. This way, for example, you can change the application headers.
+
 You can use __setContentType__ and __setDeliveryMode__ methods in order to set the message content type and the message
 delivery mode respectively. Default values are __text/plain__ for content type and __2__ for delivery mode.
 
 ```php
 $this->get('old_sound_rabbit_mq.upload_picture_producer')->setContentType('application/json');
 ```
+
+If you need to use a custom class for a producer (which should inherit from `OldSound\RabbitMqBundle\RabbitMq\Producer`), you can use the `class` option:
+
+```yaml
+    ...
+    producers:
+        upload_picture:
+            class: My\Custom\Producer
+            connection: default
+            exchange_options: {name: 'upload-picture', type: direct}
+    ...
+```
+
 
 The next piece of the puzzle is to have a consumer that will take the message out of the queue and process it accordingly.
 
@@ -250,6 +265,12 @@ If you want to establish a consumer memory limit, you can do it by using flag `-
 $ ./app/console rabbitmq:consumer -l 256
 ```
 
+If you want to remove all the messages awaiting in a queue, you can execute this command to purge this queue:
+
+```bash
+$ ./app/console rabbitmq:purge --no-confirmation upload_picture
+```
+
 #### Idle timeout ####
 
 If you need to set a timeout when there are no messages from your queue during a period of time, you can set the `idle_timeout` in seconds:
@@ -262,6 +283,31 @@ consumers:
         queue_options:    {name: 'upload-picture'}
         callback:         upload_picture_service
         idle_timeout:     60
+```
+
+#### Fair dispatching ####
+
+> You might have noticed that the dispatching still doesn't work exactly as we want. For example in a situation with two workers, when all odd messages are heavy and even messages are light, one worker will be constantly busy and the other one will do hardly any work. Well, RabbitMQ doesn't know anything about that and will still dispatch messages evenly.
+
+> This happens because RabbitMQ just dispatches a message when the message enters the queue. It doesn't look at the number of unacknowledged messages for a consumer. It just blindly dispatches every n-th message to the n-th consumer.
+
+> In order to defeat that we can use the basic.qos method with the prefetch_count=1 setting. This tells RabbitMQ not to give more than one message to a worker at a time. Or, in other words, don't dispatch a new message to a worker until it has processed and acknowledged the previous one. Instead, it will dispatch it to the next worker that is not still busy.
+
+From: http://www.rabbitmq.com/tutorials/tutorial-two-python.html
+
+Be careful as implementing the fair dispatching introduce a latency that will hurt performance (see [this blogpost](http://www.rabbitmq.com/blog/2012/05/11/some-queuing-theory-throughput-latency-and-bandwidth/)). But implemeting it allow you to scale horizontally dynamically as the queue is increasing. 
+You should evaluate, as the blogpost reccommand, the right value of prefetch_size accordingly with the time taken to process each message and your network performance.
+
+With RabbitMqBundle, you can configure that qos_options per consumer like that:
+
+```yaml
+consumers:
+    upload_picture:
+        connection:       default
+        exchange_options: {name: 'upload-picture', type: direct}
+        queue_options:    {name: 'upload-picture'}
+        callback:         upload_picture_service
+        qos_options:      {prefetch_size: 0, prefetch_count: 1, global: false}
 ```
 
 ### Callbacks ###
@@ -484,7 +530,7 @@ It takes only one argument which is the name of the producer as you configured i
 
 The purpose of this bundle is to let your application produce messages and publish them to some exchanges you configured.
 
-In some cases and even if your configuration is right, the messages you are producing will not be routed to any queue because none exist. The consumer responsible for the queue consomption has to be run for the queue to be created.
+In some cases and even if your configuration is right, the messages you are producing will not be routed to any queue because none exist. The consumer responsible for the queue consumption has to be run for the queue to be created.
 
 Launching a command for each consumer can be a nightmare when the number of consumers is high.
 
@@ -494,7 +540,7 @@ In order to create exchanges, queues and bindings at once and be sure you will n
 $ ./app/console rabbitmq:setup-fabric
 ```
 
-When desired, you can configure your consumers and producers to asume the RabbitMQ fabric is already defined. To do this, add the following to your configuration:
+When desired, you can configure your consumers and producers to assume the RabbitMQ fabric is already defined. To do this, add the following to your configuration:
 
 ```yaml
 producers:
